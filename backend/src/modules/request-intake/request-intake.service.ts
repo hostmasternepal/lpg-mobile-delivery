@@ -134,8 +134,24 @@ export class RequestIntakeService {
    * the same row can never both succeed (closes docs/ARCHITECTURE_REVIEW.md
    * I-2/I-3). The caller supplies `expectedVersion` from whatever read
    * of the request it last performed.
+   *
+   * `tx` is an optional Prisma transaction client. Modules that need to
+   * compose a request-status transition with their own writes in one
+   * atomic unit (e.g. DeliveryPlanning.assignStop() creating a
+   * DeliveryStop and moving the request to DELIVERY_PLANNED together)
+   * pass their `$transaction` callback's `tx` here instead of letting
+   * this method open its own connection — without this, a failure
+   * partway through could leave a stop row with no corresponding
+   * request-status change, or vice versa.
    */
-  async transition(requestId: string, toStatus: RequestStatus, actorId: string, expectedVersion: number) {
+  async transition(
+    requestId: string,
+    toStatus: RequestStatus,
+    actorId: string,
+    expectedVersion: number,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx ?? this.prisma;
     const validFromStatuses = getValidPredecessors(toStatus);
     if (validFromStatuses.length === 0) {
       // toStatus has no legal predecessor at all (e.g. PENDING/REJECTED —
@@ -145,12 +161,12 @@ export class RequestIntakeService {
       );
     }
 
-    const beforeState = await this.prisma.request.findUnique({ where: { id: requestId } });
+    const beforeState = await db.request.findUnique({ where: { id: requestId } });
     if (!beforeState) {
       throw new NotFoundException(`Request ${requestId} not found.`);
     }
 
-    const result = await this.prisma.request.updateMany({
+    const result = await db.request.updateMany({
       where: {
         id: requestId,
         version: expectedVersion,
@@ -165,7 +181,7 @@ export class RequestIntakeService {
     if (result.count === 0) {
       // Re-fetch only to produce an accurate error — the update itself
       // already failed atomically; this read cannot un-fail it.
-      const current = await this.prisma.request.findUnique({ where: { id: requestId } });
+      const current = await db.request.findUnique({ where: { id: requestId } });
       if (!current) {
         throw new NotFoundException(`Request ${requestId} not found.`);
       }
@@ -179,8 +195,13 @@ export class RequestIntakeService {
       );
     }
 
-    const afterState = await this.prisma.request.findUnique({ where: { id: requestId }, include: REQUEST_INCLUDE });
+    const afterState = await db.request.findUnique({ where: { id: requestId }, include: REQUEST_INCLUDE });
 
+    // Emitted even inside a caller's transaction: if that transaction
+    // later rolls back, this event describes a state change that never
+    // actually persisted. Acceptable for now (audit consumers are
+    // additive, not compensating), but noted — a transactional outbox
+    // would be the correct long-term fix if this becomes a problem.
     this.events.emit('request.status_changed', {
       requestId,
       actorId,

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { RequestIntakeModule } from '../request-intake/request-intake.module';
+import { DeliveryPlanningController } from './delivery-planning.controller';
 import { DeliveryPlanningService } from './delivery-planning.service';
 
 /**
@@ -8,13 +10,17 @@ import { DeliveryPlanningService } from './delivery-planning.service';
  * deliveries, agent_profile.
  *
  * recordOtpOutcome() is the ONLY method that may set
- * delivery_stops.status = CONFIRMED (ARCH-DECISION-19) — the Otp module
- * calls it rather than writing the column itself. generatePlan() must run
- * in a single transaction and be idempotent per (plan_date, request_id,
- * attempt_number) — ARCH-DECISION-15, closes review HIGH-6.
- * Scaffolded, not yet implemented.
+ * delivery_stops.status = CONFIRMED (ARCH-DECISION-19) — the (not yet
+ * built) Otp module will call it rather than writing the column itself.
+ * generatePlan() runs in a single transaction and is idempotent per
+ * plan_date (ARCH-DECISION-15, closes review HIGH-6); assignStop() is
+ * idempotent per request (a request can only be assigned once — see the
+ * DELIVERY_QUEUE precondition) and atomic with the request's status
+ * transition via a shared Prisma transaction.
  */
 @Module({
+  imports: [RequestIntakeModule],
+  controllers: [DeliveryPlanningController],
   providers: [DeliveryPlanningService],
   exports: [DeliveryPlanningService],
 })

@@ -9,15 +9,158 @@ import { AuditLogService } from './audit-log.service';
  * because running both risked duplicate or inconsistent audit rows,
  * closing docs/ARCHITECTURE_REVIEW.md A-5/MED-1).
  *
- * As each business module (DeliveryPlanning, Otp, ExternalIntegration) is
- * built out, it emits its own domain events (see the catalog in
+ * As each business module (Otp, ExternalIntegration) is built out, it
+ * emits its own domain events (see the catalog in
  * docs/ARCHITECTURE_REVIEW.md §G) and a handler is added here.
  * IdentityAccess, RequestIntake, Verification, PriorityClassification,
- * and AuditLog-self events are wired so far.
+ * DeliveryPlanning, and AuditLog-self events are wired so far.
  */
 @Injectable()
 export class AuditLogListener {
   constructor(private readonly auditLog: AuditLogService) {}
+
+  @OnEvent('delivery.plan_created')
+  async onPlanCreated(payload: { planId: string; actorId: string; afterState: unknown; occurredAt: Date }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_PLAN_CREATED',
+      entityType: 'DeliveryPlan',
+      entityId: payload.planId,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('delivery.vehicle_assigned')
+  async onVehicleAssigned(payload: {
+    planVehicleId: string;
+    planId: string;
+    actorId: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_VEHICLE_ASSIGNED',
+      entityType: 'DeliveryPlanVehicle',
+      entityId: payload.planVehicleId,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('delivery.vehicle_load_adjusted')
+  async onVehicleLoadAdjusted(payload: {
+    planVehicleId: string;
+    actorId: string;
+    beforeState: unknown;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_VEHICLE_LOAD_ADJUSTED',
+      entityType: 'DeliveryPlanVehicle',
+      entityId: payload.planVehicleId,
+      beforeState: payload.beforeState,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('delivery.stop_assigned')
+  async onStopAssigned(payload: {
+    stopId: string;
+    requestId: string;
+    deliveryPlanVehicleId: string;
+    actorId: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_STOP_ASSIGNED',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('delivery.stops_sequenced')
+  async onStopsSequenced(payload: {
+    deliveryPlanVehicleId: string;
+    actorId: string;
+    orderedStopIds: string[];
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_STOPS_SEQUENCED',
+      entityType: 'DeliveryPlanVehicle',
+      entityId: payload.deliveryPlanVehicleId,
+      afterState: { orderedStopIds: payload.orderedStopIds },
+    });
+  }
+
+  @OnEvent('delivery.stop_started')
+  async onStopStarted(payload: { stopId: string; actorId: string; afterState: unknown; occurredAt: Date }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_STOP_STARTED',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('delivery.stop_status_changed')
+  async onStopStatusChanged(payload: {
+    stopId: string;
+    actorId: string;
+    toStatus: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: `DELIVERY_STOP_${payload.toStatus}`,
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('delivery.confirmed')
+  async onDeliveryConfirmed(payload: {
+    stopId: string;
+    requestId: string;
+    actorId: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_CONFIRMED',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('delivery.stop_rescheduled')
+  async onStopRescheduled(payload: {
+    previousStopId: string;
+    newStopId: string;
+    actorId: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_STOP_RESCHEDULED',
+      entityType: 'DeliveryStop',
+      entityId: payload.newStopId,
+      beforeState: { previousStopId: payload.previousStopId },
+      afterState: payload.afterState,
+    });
+  }
 
   @OnEvent('priority.assessed')
   async onPriorityAssessed(payload: {
