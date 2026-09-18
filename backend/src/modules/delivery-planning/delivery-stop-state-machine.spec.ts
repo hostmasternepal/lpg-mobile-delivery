@@ -16,6 +16,11 @@ describe('delivery-stop-state-machine', () => {
     expect(getValidStopPredecessors('CONFIRMED')).toEqual(['OTP_SENT']);
   });
 
+  it('allows a resend-that-fails-to-send from OTP_SENT or OTP_VERIFY_FAILED', () => {
+    expect(isValidStopTransition('OTP_SENT', 'OTP_SEND_FAILED')).toBe(true);
+    expect(isValidStopTransition('OTP_VERIFY_FAILED', 'OTP_SEND_FAILED')).toBe(true);
+  });
+
   it('rejects skipping straight to CONFIRMED', () => {
     expect(isValidStopTransition('SCHEDULED', 'CONFIRMED')).toBe(false);
     expect(isValidStopTransition('IN_PROGRESS', 'CONFIRMED')).toBe(false);

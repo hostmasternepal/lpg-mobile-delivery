@@ -15,6 +15,15 @@ import { DeliveryStopStatus, getValidStopPredecessors } from './delivery-stop-st
 
 const TERMINAL_STOP_STATUSES: DeliveryStopStatus[] = ['CONFIRMED', 'FAILED', 'CANCELLED'];
 
+/**
+ * States eligible for recordManualOverride() — deliberately DIFFERENT
+ * from getValidStopPredecessors('CONFIRMED') (which is ['OTP_SENT']
+ * only). This is the sanctioned exception ARCH-DECISION-19 describes,
+ * not a weakening of the normal rule: a stop only reaches one of these
+ * states after a real OTP attempt was made and didn't succeed.
+ */
+const MANUAL_OVERRIDE_ELIGIBLE_STATUSES: DeliveryStopStatus[] = ['OTP_SEND_FAILED', 'OTP_VERIFY_FAILED', 'FAILED'];
+
 @Injectable()
 export class DeliveryPlanningService {
   constructor(
@@ -401,6 +410,58 @@ export class DeliveryPlanningService {
       stopId,
       requestId: request.id,
       actorId,
+      afterState: updatedStop,
+      occurredAt: new Date(),
+    });
+
+    return updatedStop;
+  }
+
+  /**
+   * ARCH-DECISION-19's sanctioned bypass: confirms delivery after OTP
+   * exhaustion/expiry/send-failure, WITHOUT going through
+   * recordOtpOutcome()'s strict OTP_SENT-only gate. Mandatory `reason`,
+   * always audited via a distinctly-named event so a government
+   * accountability review can tell a verified confirmation from an
+   * overridden one at a glance — never folded into the generic
+   * DELIVERY_CONFIRMED audit action. Who may call this is
+   * OPEN-BUSINESS-DECISION-40; the Otp module's controller enforces
+   * `otp:manual-override` pending that ratification.
+   */
+  async recordManualOverride(stopId: string, actorId: string, reason: string) {
+    const stop = await this.prisma.deliveryStop.findUnique({ where: { id: stopId }, include: { delivery: true } });
+    if (!stop) {
+      throw new NotFoundException(`Delivery stop ${stopId} not found.`);
+    }
+    if (!MANUAL_OVERRIDE_ELIGIBLE_STATUSES.includes(stop.status as DeliveryStopStatus)) {
+      throw new BadRequestException(
+        `Stop ${stopId} is ${stop.status}; manual override only applies to a stop that already had a failed OTP attempt (OTP_SEND_FAILED, OTP_VERIFY_FAILED, or FAILED) — see OPEN-BUSINESS-DECISION-40.`,
+      );
+    }
+    const request = await this.prisma.request.findUniqueOrThrow({ where: { id: stop.delivery.requestId } });
+
+    const updatedStop = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.deliveryStop.updateMany({
+        where: { id: stopId, version: stop.version, status: { in: MANUAL_OVERRIDE_ELIGIBLE_STATUSES } },
+        data: { status: 'CONFIRMED', version: { increment: 1 }, completedAt: new Date() },
+      });
+      if (result.count === 0) {
+        throw new ConflictException(`Stop ${stopId} was modified concurrently. Reload and retry.`);
+      }
+      await tx.delivery.update({
+        where: { id: stop.deliveryId },
+        data: { status: 'DELIVERED', confirmedAt: new Date() },
+      });
+      await this.requestIntake.transition(request.id, 'DELIVERED', actorId, request.version, tx);
+      return tx.deliveryStop.findUniqueOrThrow({ where: { id: stopId } });
+    });
+
+    this.events.emit('delivery.manual_override_confirmed', {
+      stopId,
+      requestId: request.id,
+      actorId,
+      reason,
+      beforeState: stop,
       afterState: updatedStop,
       occurredAt: new Date(),
     });

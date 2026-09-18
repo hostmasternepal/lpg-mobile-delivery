@@ -30,10 +30,14 @@ export const DELIVERY_STOP_STATE_TRANSITIONS: Record<DeliveryStopStatus, Deliver
   SCHEDULED: ['IN_PROGRESS', 'CANCELLED'],
   IN_PROGRESS: ['OTP_SENT', 'OTP_SEND_FAILED', 'CANCELLED'],
   // ARCH-DECISION-19: OTP_SENT -> CONFIRMED is the only path to CONFIRMED
-  // anywhere in the system.
-  OTP_SENT: ['CONFIRMED', 'OTP_VERIFY_FAILED'],
+  // anywhere in the system. OTP_SENT -> OTP_SEND_FAILED covers a resend
+  // attempt (triggered while already OTP_SENT) that itself fails to send
+  // — discovered while implementing the Otp module's resend() flow.
+  OTP_SENT: ['CONFIRMED', 'OTP_VERIFY_FAILED', 'OTP_SEND_FAILED'],
   OTP_SEND_FAILED: ['IN_PROGRESS', 'FAILED'], // retry the send, or give up
-  OTP_VERIFY_FAILED: ['OTP_SENT', 'FAILED'], // resend a new code, or give up
+  // OTP_VERIFY_FAILED -> OTP_SEND_FAILED covers a resend-after-wrong-code
+  // that itself fails to send (same discovery as above).
+  OTP_VERIFY_FAILED: ['OTP_SENT', 'OTP_SEND_FAILED', 'FAILED'], // resend a new code, or give up
   CONFIRMED: [],
   FAILED: [],
   CANCELLED: [],

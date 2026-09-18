@@ -9,9 +9,13 @@ import { DeliveryPlanningService } from './delivery-planning.service';
  * delivery_plans, delivery_plan_vehicles, vehicles, delivery_stops,
  * deliveries, agent_profile.
  *
- * recordOtpOutcome() is the ONLY method that may set
- * delivery_stops.status = CONFIRMED (ARCH-DECISION-19) — the (not yet
- * built) Otp module will call it rather than writing the column itself.
+ * recordOtpOutcome() and recordManualOverride() are the ONLY methods
+ * that may set delivery_stops.status = CONFIRMED (ARCH-DECISION-19) —
+ * the Otp module calls into them rather than writing the column itself.
+ * The two are deliberately not interchangeable: recordOtpOutcome()
+ * confirms only from OTP_SENT (a real verified code); recordManualOverride()
+ * is the sanctioned bypass from a failed-attempt state, mandatorily
+ * reasoned and distinctly audited (OPEN-BUSINESS-DECISION-40).
  * generatePlan() runs in a single transaction and is idempotent per
  * plan_date (ARCH-DECISION-15, closes review HIGH-6); assignStop() is
  * idempotent per request (a request can only be assigned once — see the

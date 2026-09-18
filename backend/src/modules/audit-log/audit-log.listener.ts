@@ -9,15 +9,125 @@ import { AuditLogService } from './audit-log.service';
  * because running both risked duplicate or inconsistent audit rows,
  * closing docs/ARCHITECTURE_REVIEW.md A-5/MED-1).
  *
- * As each business module (Otp, ExternalIntegration) is built out, it
- * emits its own domain events (see the catalog in
+ * As each business module (ExternalIntegration) is built out, it emits
+ * its own domain events (see the catalog in
  * docs/ARCHITECTURE_REVIEW.md §G) and a handler is added here.
  * IdentityAccess, RequestIntake, Verification, PriorityClassification,
- * DeliveryPlanning, and AuditLog-self events are wired so far.
+ * DeliveryPlanning, Otp, Notification, and AuditLog-self events are
+ * wired so far.
  */
 @Injectable()
 export class AuditLogListener {
   constructor(private readonly auditLog: AuditLogService) {}
+
+  @OnEvent('otp.generated')
+  async onOtpGenerated(payload: {
+    stopId: string;
+    otpCodeId: string;
+    sent: boolean;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      action: payload.sent ? 'OTP_GENERATED' : 'OTP_SEND_FAILED',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      afterState: { otpCodeId: payload.otpCodeId, sent: payload.sent },
+    });
+  }
+
+  @OnEvent('otp.resent')
+  async onOtpResent(payload: { stopId: string; actorId: string; sent: boolean; occurredAt: Date }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: payload.sent ? 'OTP_RESENT' : 'OTP_RESEND_SEND_FAILED',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+    });
+  }
+
+  /**
+   * The failure case is the audit-relevant one: it is what lets a
+   * brute-force pattern be detected after the fact (docs/
+   * ARCHITECTURE_REVIEW.md HIGH-4 — the pre-review design only named a
+   * success event).
+   */
+  @OnEvent('otp.verification_failed')
+  async onOtpVerificationFailed(payload: {
+    stopId: string;
+    actorId: string;
+    reason: string;
+    attemptsRemaining?: number;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: `OTP_VERIFICATION_FAILED_${payload.reason.toUpperCase()}`,
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      afterState: { attemptsRemaining: payload.attemptsRemaining },
+    });
+  }
+
+  @OnEvent('otp.verified')
+  async onOtpVerified(payload: { stopId: string; actorId: string; occurredAt: Date }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'OTP_VERIFIED',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+    });
+  }
+
+  @OnEvent('delivery.manual_override_confirmed')
+  async onManualOverrideConfirmed(payload: {
+    stopId: string;
+    requestId: string;
+    actorId: string;
+    reason: string;
+    beforeState: unknown;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_MANUAL_OVERRIDE_CONFIRMED',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      beforeState: { ...(payload.beforeState as object), reason: payload.reason },
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('notification.sent')
+  async onNotificationSent(payload: {
+    notificationId: string;
+    deliveryStopId?: string;
+    purpose: string;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      action: 'NOTIFICATION_SENT',
+      entityType: 'Notification',
+      entityId: payload.notificationId,
+      afterState: { deliveryStopId: payload.deliveryStopId, purpose: payload.purpose },
+    });
+  }
+
+  @OnEvent('notification.failed')
+  async onNotificationFailed(payload: {
+    notificationId: string;
+    deliveryStopId?: string;
+    purpose: string;
+    error: string;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      action: 'NOTIFICATION_FAILED',
+      entityType: 'Notification',
+      entityId: payload.notificationId,
+      afterState: { deliveryStopId: payload.deliveryStopId, purpose: payload.purpose, error: payload.error },
+    });
+  }
 
   @OnEvent('delivery.plan_created')
   async onPlanCreated(payload: { planId: string; actorId: string; afterState: unknown; occurredAt: Date }) {
