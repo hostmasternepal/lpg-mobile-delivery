@@ -9,15 +9,34 @@ import { AuditLogService } from './audit-log.service';
  * because running both risked duplicate or inconsistent audit rows,
  * closing docs/ARCHITECTURE_REVIEW.md A-5/MED-1).
  *
- * As each business module (Verification, PriorityClassification,
- * DeliveryPlanning, Otp, ExternalIntegration) is built out, it emits its
- * own domain events (see the catalog in docs/ARCHITECTURE_REVIEW.md §G)
- * and a handler is added here. IdentityAccess, RequestIntake, and
+ * As each business module (PriorityClassification, DeliveryPlanning,
+ * Otp, ExternalIntegration) is built out, it emits its own domain events
+ * (see the catalog in docs/ARCHITECTURE_REVIEW.md §G) and a handler is
+ * added here. IdentityAccess, RequestIntake, Verification, and
  * AuditLog-self events are wired so far.
  */
 @Injectable()
 export class AuditLogListener {
   constructor(private readonly auditLog: AuditLogService) {}
+
+  @OnEvent('verification.recorded')
+  async onVerificationRecorded(payload: {
+    requestId: string;
+    actorId: string;
+    verificationId: string;
+    method: string;
+    outcome: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: `VERIFICATION_${payload.outcome}`,
+      entityType: 'Request',
+      entityId: payload.requestId,
+      afterState: payload.afterState,
+    });
+  }
 
   @OnEvent('request.created')
   async onRequestCreated(payload: { requestId: string; actorId: string; afterState: unknown; occurredAt: Date }) {
