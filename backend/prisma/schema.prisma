@@ -427,6 +427,34 @@ model PolicySetting {
 }
 
 // ---------------------------------------------------------------------------
+// DashboardReporting module
+// ---------------------------------------------------------------------------
+
+/// The ONLY table DashboardReportingService reads from (docs/ARCHITECTURE.md
+/// §2 boundary rule 4 / ARCHITECTURE_REVIEW.md A-4, closing review CRIT-6).
+/// Deliberately has NO Prisma relation to Request/Beneficiary/Delivery —
+/// it is a denormalized read-model copy, kept current by
+/// DashboardProjectionListener reacting to domain events emitted by
+/// RequestIntake/PriorityClassification/DeliveryPlanning, never by this
+/// module querying their tables directly. `requestId` is a plain string,
+/// not a foreign key, for the same reason.
+model DashboardRequestProjection {
+  requestId        String    @id @map("request_id")
+  status           String
+  sourceChannel    String    @map("source_channel")
+  district         String? // denormalized from beneficiary.location.district at request-create/update time
+  hasPriorityGroup Boolean   @default(false) @map("has_priority_group")
+  createdAt        DateTime  @map("created_at")
+  deliveredAt      DateTime? @map("delivered_at") // set on delivery.confirmed / delivery.manual_override_confirmed
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([sourceChannel])
+  @@index([district])
+  @@map("dashboard_request_projections")
+}
+
+// ---------------------------------------------------------------------------
 // AuditLog module
 // ---------------------------------------------------------------------------
 

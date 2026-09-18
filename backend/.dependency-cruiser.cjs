@@ -33,6 +33,22 @@ module.exports = {
       },
       to: { path: '^src/modules/delivery-planning/delivery-planning\\.service' },
     },
+    {
+      name: 'dashboard-reporting-must-not-read-other-modules-directly',
+      comment:
+        'DashboardReportingService/DashboardProjectionListener may depend only on ' +
+        'shared infra (common/, @nestjs/*) and their own files — never another ' +
+        'business module\'s service or Prisma repository access. The dashboard reads ' +
+        'exclusively from dashboard_request_projections, kept current purely by domain ' +
+        'events (docs/ARCHITECTURE.md §2 boundary rule 4, closes ARCHITECTURE_REVIEW.md ' +
+        'A-4/CRIT-6). A one-time backfill script is intentionally exempt — see ' +
+        'backend/scripts/backfill-dashboard-projections.ts.',
+      severity: 'error',
+      from: { path: '^src/modules/dashboard-reporting' },
+      to: {
+        path: '^src/modules/(?!dashboard-reporting)',
+      },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
