@@ -37,6 +37,8 @@ const PERMISSIONS = [
   'report:read',
   'audit-log:read',
   'user:manage',
+  'integration:receive',
+  'integration:manage',
 ] as const;
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -56,6 +58,14 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   DELIVERY_AGENT: ['delivery:read-own', 'delivery:start', 'otp:verify', 'otp:resend'],
   OFFICIAL: ['dashboard:read', 'report:read'],
   AUDITOR: ['audit-log:read'],
+  // No default user is seeded for this role — a real integration partner
+  // (Hello Sarkar, NOC Call Centre, ...) would be provisioned a service
+  // account once their actual contract/auth scheme is confirmed
+  // (OPEN-BUSINESS-DECISION-21/22/27/28). Reusing the existing
+  // user+JWT+RBAC system for inbound webhook auth is a pragmatic default
+  // (ARCH-DECISION-level), not a resolution of what the eventual scheme
+  // should be — see docs/ARCHITECTURE.md §11.
+  INTEGRATION_SERVICE: ['integration:receive'],
 };
 
 // SRS REQ-023 — the 8 priority groups verbatim from the concept paper §4.

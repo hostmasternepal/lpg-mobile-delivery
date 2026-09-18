@@ -404,6 +404,7 @@ model IntegrationInboxEntry {
   externalReferenceId String    @map("external_reference_id")
   rawPayload          Json      @map("raw_payload")
   status              String    @default("RECEIVED") // RECEIVED | PROCESSED | FAILED | DUPLICATE
+  resultingRequestId  String?   @map("resulting_request_id") // set on PROCESSED — not a FK, same reasoning as dashboard_request_projections
   receivedAt          DateTime  @default(now()) @map("received_at")
   processedAt         DateTime? @map("processed_at")
 

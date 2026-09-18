@@ -9,16 +9,104 @@ import { AuditLogService } from './audit-log.service';
  * because running both risked duplicate or inconsistent audit rows,
  * closing docs/ARCHITECTURE_REVIEW.md A-5/MED-1).
  *
- * As each business module (ExternalIntegration) is built out, it emits
- * its own domain events (see the catalog in
- * docs/ARCHITECTURE_REVIEW.md §G) and a handler is added here.
- * IdentityAccess, RequestIntake, Verification, PriorityClassification,
- * DeliveryPlanning, Otp, Notification, and AuditLog-self events are
- * wired so far.
+ * Every business module named in docs/ARCHITECTURE.md §2's module table
+ * now has its events wired here: IdentityAccess, RequestIntake,
+ * Verification, PriorityClassification, DeliveryPlanning, Otp,
+ * Notification, ExternalIntegration, and AuditLog-self.
  */
 @Injectable()
 export class AuditLogListener {
   constructor(private readonly auditLog: AuditLogService) {}
+
+  @OnEvent('integration.inbound_received')
+  async onInboundReceived(payload: {
+    inboxEntryId: string;
+    sourceChannel: string;
+    externalReferenceId: string;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      action: 'INTEGRATION_INBOUND_RECEIVED',
+      entityType: 'IntegrationInboxEntry',
+      entityId: payload.inboxEntryId,
+      afterState: { sourceChannel: payload.sourceChannel, externalReferenceId: payload.externalReferenceId },
+    });
+  }
+
+  @OnEvent('integration.inbound_duplicate')
+  async onInboundDuplicate(payload: {
+    inboxEntryId: string;
+    sourceChannel: string;
+    externalReferenceId: string;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      action: 'INTEGRATION_INBOUND_DUPLICATE',
+      entityType: 'IntegrationInboxEntry',
+      entityId: payload.inboxEntryId,
+      afterState: { sourceChannel: payload.sourceChannel, externalReferenceId: payload.externalReferenceId },
+    });
+  }
+
+  @OnEvent('integration.inbound_processed')
+  async onInboundProcessed(payload: { inboxEntryId: string; requestId: string; occurredAt: Date }) {
+    await this.auditLog.record({
+      action: 'INTEGRATION_INBOUND_PROCESSED',
+      entityType: 'IntegrationInboxEntry',
+      entityId: payload.inboxEntryId,
+      afterState: { requestId: payload.requestId },
+    });
+  }
+
+  @OnEvent('integration.inbound_failed')
+  async onInboundFailed(payload: {
+    inboxEntryId: string;
+    sourceChannel: string;
+    externalReferenceId: string;
+    error: string;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      action: 'INTEGRATION_INBOUND_FAILED',
+      entityType: 'IntegrationInboxEntry',
+      entityId: payload.inboxEntryId,
+      afterState: { sourceChannel: payload.sourceChannel, error: payload.error },
+    });
+  }
+
+  @OnEvent('integration.outbound_dispatched')
+  async onOutboundDispatched(payload: {
+    planId: string;
+    vehicleIdentifier: string;
+    stopCount: number;
+    actorId: string;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'INTEGRATION_OUTBOUND_DISPATCHED',
+      entityType: 'DeliveryPlan',
+      entityId: payload.planId,
+      afterState: { vehicleIdentifier: payload.vehicleIdentifier, stopCount: payload.stopCount },
+    });
+  }
+
+  @OnEvent('integration.outbound_dispatch_failed')
+  async onOutboundDispatchFailed(payload: {
+    planId: string;
+    vehicleIdentifier: string;
+    actorId: string;
+    error: string;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'INTEGRATION_OUTBOUND_DISPATCH_FAILED',
+      entityType: 'DeliveryPlan',
+      entityId: payload.planId,
+      afterState: { vehicleIdentifier: payload.vehicleIdentifier, error: payload.error },
+    });
+  }
 
   @OnEvent('otp.generated')
   async onOtpGenerated(payload: {
