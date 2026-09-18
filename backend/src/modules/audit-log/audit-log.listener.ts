@@ -9,15 +9,64 @@ import { AuditLogService } from './audit-log.service';
  * because running both risked duplicate or inconsistent audit rows,
  * closing docs/ARCHITECTURE_REVIEW.md A-5/MED-1).
  *
- * As each business module (RequestIntake, Verification,
- * PriorityClassification, DeliveryPlanning, Otp, ExternalIntegration) is
- * built out, it emits its own domain events (see the catalog in
- * docs/ARCHITECTURE_REVIEW.md §G) and a handler is added here. Only the
- * IdentityAccess and AuditLog-self events exist so far.
+ * As each business module (Verification, PriorityClassification,
+ * DeliveryPlanning, Otp, ExternalIntegration) is built out, it emits its
+ * own domain events (see the catalog in docs/ARCHITECTURE_REVIEW.md §G)
+ * and a handler is added here. IdentityAccess, RequestIntake, and
+ * AuditLog-self events are wired so far.
  */
 @Injectable()
 export class AuditLogListener {
   constructor(private readonly auditLog: AuditLogService) {}
+
+  @OnEvent('request.created')
+  async onRequestCreated(payload: { requestId: string; actorId: string; afterState: unknown; occurredAt: Date }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'REQUEST_CREATED',
+      entityType: 'Request',
+      entityId: payload.requestId,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('request.updated')
+  async onRequestUpdated(payload: {
+    requestId: string;
+    actorId: string;
+    beforeState: unknown;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'REQUEST_UPDATED',
+      entityType: 'Request',
+      entityId: payload.requestId,
+      beforeState: payload.beforeState,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('request.status_changed')
+  async onRequestStatusChanged(payload: {
+    requestId: string;
+    actorId: string;
+    fromStatus: string;
+    toStatus: string;
+    beforeState: unknown;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: `REQUEST_STATUS_CHANGED_${payload.fromStatus}_TO_${payload.toStatus}`,
+      entityType: 'Request',
+      entityId: payload.requestId,
+      beforeState: payload.beforeState,
+      afterState: payload.afterState,
+    });
+  }
 
   @OnEvent('identity.login_succeeded')
   async onLoginSucceeded(payload: { actorId: string; occurredAt: Date }) {
