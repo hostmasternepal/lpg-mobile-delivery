@@ -9,15 +9,70 @@ import { AuditLogService } from './audit-log.service';
  * because running both risked duplicate or inconsistent audit rows,
  * closing docs/ARCHITECTURE_REVIEW.md A-5/MED-1).
  *
- * As each business module (PriorityClassification, DeliveryPlanning,
- * Otp, ExternalIntegration) is built out, it emits its own domain events
- * (see the catalog in docs/ARCHITECTURE_REVIEW.md §G) and a handler is
- * added here. IdentityAccess, RequestIntake, Verification, and
- * AuditLog-self events are wired so far.
+ * As each business module (DeliveryPlanning, Otp, ExternalIntegration) is
+ * built out, it emits its own domain events (see the catalog in
+ * docs/ARCHITECTURE_REVIEW.md §G) and a handler is added here.
+ * IdentityAccess, RequestIntake, Verification, PriorityClassification,
+ * and AuditLog-self events are wired so far.
  */
 @Injectable()
 export class AuditLogListener {
   constructor(private readonly auditLog: AuditLogService) {}
+
+  @OnEvent('priority.assessed')
+  async onPriorityAssessed(payload: {
+    requestId: string;
+    actorId: string;
+    policyVersionId: string;
+    beforeState: unknown;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'PRIORITY_ASSESSED',
+      entityType: 'Request',
+      entityId: payload.requestId,
+      beforeState: payload.beforeState,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('priority.overridden')
+  async onPriorityOverridden(payload: {
+    requestId: string;
+    actorId: string;
+    overrideId: string;
+    reason: string;
+    beforeState: unknown;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'PRIORITY_OVERRIDDEN',
+      entityType: 'Request',
+      entityId: payload.requestId,
+      beforeState: payload.beforeState,
+      afterState: payload.afterState,
+    });
+  }
+
+  @OnEvent('priority.policy_version_activated')
+  async onPolicyVersionActivated(payload: {
+    policyVersionId: string;
+    actorId: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'PRIORITY_POLICY_VERSION_ACTIVATED',
+      entityType: 'PriorityPolicyVersion',
+      entityId: payload.policyVersionId,
+      afterState: payload.afterState,
+    });
+  }
 
   @OnEvent('verification.recorded')
   async onVerificationRecorded(payload: {

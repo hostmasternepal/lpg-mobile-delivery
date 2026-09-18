@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PriorityClassificationController } from './priority-classification.controller';
 import { PriorityClassificationService } from './priority-classification.service';
 
 /**
@@ -11,9 +12,9 @@ import { PriorityClassificationService } from './priority-classification.service
  * assess() MUST NOT invent a scoring formula when
  * priority_policy_versions.scoring_formula is null — output stays an
  * unordered set of matched groups. See OPEN-BUSINESS-DECISION-08/09.
- * Scaffolded, not yet implemented.
  */
 @Module({
+  controllers: [PriorityClassificationController],
   providers: [PriorityClassificationService],
   exports: [PriorityClassificationService],
 })

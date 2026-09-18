@@ -21,6 +21,7 @@ const PERMISSIONS = [
   'request:update',
   'request:verify',
   'request:classify-priority',
+  'priority-policy:manage',
   'request:shortlist',
   'request:queue',
   'delivery-plan:create',
