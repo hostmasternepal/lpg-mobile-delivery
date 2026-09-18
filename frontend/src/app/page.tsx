@@ -20,8 +20,12 @@ export default function HomePage() {
       router.replace('/login');
     } else if (user.roles.includes('DELIVERY_AGENT')) {
       router.replace('/deliveries');
-    } else if (user.roles.some((r) => ['INTAKE_OPERATOR', 'VERIFICATION_OFFICER', 'DISPATCH_COORDINATOR'].includes(r))) {
+    } else if (user.roles.includes('DISPATCH_COORDINATOR')) {
+      router.replace('/delivery-queue');
+    } else if (user.roles.some((r) => ['INTAKE_OPERATOR', 'VERIFICATION_OFFICER'].includes(r))) {
       router.replace('/requests');
+    } else if (user.roles.includes('AUDITOR')) {
+      router.replace('/audit-logs');
     } else {
       router.replace('/dashboard');
     }

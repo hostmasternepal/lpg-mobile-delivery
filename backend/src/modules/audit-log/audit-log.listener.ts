@@ -360,6 +360,23 @@ export class AuditLogListener {
     });
   }
 
+  @OnEvent('delivery.stop_given_up')
+  async onStopGivenUp(payload: {
+    stopId: string;
+    actorId: string;
+    reason: string;
+    afterState: unknown;
+    occurredAt: Date;
+  }) {
+    await this.auditLog.record({
+      actorId: payload.actorId,
+      action: 'DELIVERY_STOP_GIVEN_UP',
+      entityType: 'DeliveryStop',
+      entityId: payload.stopId,
+      afterState: { ...(payload.afterState as object), reason: payload.reason },
+    });
+  }
+
   @OnEvent('priority.assessed')
   async onPriorityAssessed(payload: {
     requestId: string;

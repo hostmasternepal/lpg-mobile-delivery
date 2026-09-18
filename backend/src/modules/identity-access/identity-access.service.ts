@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -8,6 +8,7 @@ import Redis from 'ioredis';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { CreateUserDto } from './dto/create-user.dto';
 import { LoginDto } from './dto/login.dto';
 
 interface TokenPair {
@@ -105,6 +106,66 @@ export class IdentityAccessService {
     }
 
     return { roles, permissions: Array.from(permissions) };
+  }
+
+  /**
+   * Minimal user-management surface needed for an admin to actually
+   * operate the system (e.g. provisioning a DeliveryAgent login before
+   * creating their AgentProfile in DeliveryPlanning, or a service
+   * account for ExternalIntegration). Gated by `user:manage`
+   * (ADMIN-only by default, backend/prisma/seed.ts) — this is NOT a
+   * resolution of OPEN-BUSINESS-DECISION-05 (the real onboarding
+   * process/authority for staff accounts stays open), just the
+   * mechanism a system administrator needs meanwhile.
+   */
+  async listUsers() {
+    const users = await this.prisma.user.findMany({
+      include: { roles: { include: { role: true } } },
+      orderBy: { fullName: 'asc' },
+    });
+    return users.map((u) => ({
+      id: u.id,
+      fullName: u.fullName,
+      phoneOrUsername: u.phoneOrUsername,
+      isActive: u.isActive,
+      roles: u.roles.map((r) => r.role.name),
+    }));
+  }
+
+  async listRoles() {
+    return this.prisma.role.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  async createUser(dto: CreateUserDto) {
+    const existing = await this.prisma.user.findUnique({ where: { phoneOrUsername: dto.phoneOrUsername } });
+    if (existing) {
+      throw new BadRequestException(`'${dto.phoneOrUsername}' is already in use.`);
+    }
+    const roles = await this.prisma.role.findMany({ where: { name: { in: dto.roleNames } } });
+    if (roles.length !== dto.roleNames.length) {
+      const found = new Set(roles.map((r) => r.name));
+      const missing = dto.roleNames.filter((r) => !found.has(r));
+      throw new BadRequestException(`Unknown role(s): ${missing.join(', ')}`);
+    }
+
+    const passwordHash = await argon2.hash(dto.password);
+    const user = await this.prisma.user.create({
+      data: {
+        fullName: dto.fullName,
+        phoneOrUsername: dto.phoneOrUsername,
+        passwordHash,
+        roles: { create: roles.map((role) => ({ roleId: role.id })) },
+      },
+      include: { roles: { include: { role: true } } },
+    });
+
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      phoneOrUsername: user.phoneOrUsername,
+      isActive: user.isActive,
+      roles: user.roles.map((r) => r.role.name),
+    };
   }
 
   private async buildAuthenticatedUser(userId: string): Promise<AuthenticatedUser> {

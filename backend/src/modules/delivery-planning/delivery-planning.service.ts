@@ -493,6 +493,16 @@ export class DeliveryPlanningService {
     }
 
     const newStop = await this.prisma.$transaction(async (tx) => {
+      const latestAttempt = await tx.deliveryStop.aggregate({
+        where: { deliveryId: failedStop.deliveryId },
+        _max: { attemptNumber: true },
+      });
+      if (latestAttempt._max.attemptNumber !== failedStop.attemptNumber) {
+        throw new BadRequestException(
+          `Stop ${failedStopId} (attempt ${failedStop.attemptNumber}) is not the latest attempt for its delivery; ` +
+            `it has already been superseded by a later attempt and cannot be rescheduled.`,
+        );
+      }
       const nextSequence = await this.nextSequenceNumber(tx, dto.deliveryPlanVehicleId);
       return tx.deliveryStop.create({
         data: {
@@ -514,6 +524,29 @@ export class DeliveryPlanningService {
     });
 
     return newStop;
+  }
+
+  /**
+   * Dispatch decision to abandon a stop that already had a failed OTP
+   * attempt (OTP_SEND_FAILED/OTP_VERIFY_FAILED) — the "give up" edge the
+   * delivery-stop state machine already declares into FAILED, but which
+   * nothing previously called (recordOtpOutcome() supports 'FAILED' as a
+   * to-status but is only ever invoked with OTP outcomes by the Otp
+   * module). Without this, rescheduleStop() had no reachable predecessor
+   * to act on outside of direct DB writes. Mandatory `reason`, own event
+   * name, same shape as recordManualOverride() — a distinct, audited
+   * action rather than widening an existing one.
+   */
+  async giveUpOnStop(stopId: string, actorId: string, reason: string) {
+    const updatedStop = await this.transitionStop(stopId, 'FAILED');
+    this.events.emit('delivery.stop_given_up', {
+      stopId,
+      actorId,
+      reason,
+      afterState: updatedStop,
+      occurredAt: new Date(),
+    });
+    return updatedStop;
   }
 
   // ---------------------------------------------------------------------

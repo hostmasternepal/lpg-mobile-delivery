@@ -9,6 +9,7 @@ import { CreateAgentProfileDto } from './dto/create-agent-profile.dto';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { ExpectedVersionDto } from './dto/expected-version.dto';
 import { GeneratePlanDto } from './dto/generate-plan.dto';
+import { GiveUpOnStopDto } from './dto/give-up-on-stop.dto';
 import { RescheduleStopDto } from './dto/reschedule-stop.dto';
 import { SequenceStopsDto } from './dto/sequence-stops.dto';
 import { DeliveryPlanningService } from './delivery-planning.service';
@@ -117,6 +118,15 @@ export class DeliveryPlanningController {
   @Permissions('delivery:reschedule')
   rescheduleStop(@Param('id') id: string, @Body() dto: RescheduleStopDto, @CurrentUser() user: AuthenticatedUser) {
     return this.deliveryPlanning.rescheduleStop(id, dto, user.userId);
+  }
+
+  // Give-up is a prerequisite to reschedule (a stop must reach FAILED
+  // before it's reschedule-eligible), so it's gated by the same
+  // permission as reschedule rather than a new one.
+  @Post('delivery-stops/:id/give-up')
+  @Permissions('delivery:reschedule')
+  giveUpOnStop(@Param('id') id: string, @Body() dto: GiveUpOnStopDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.deliveryPlanning.giveUpOnStop(id, user.userId, dto.reason);
   }
 
   @Get('agent/delivery-stops')
