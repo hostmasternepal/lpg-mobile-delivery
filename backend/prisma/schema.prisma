@@ -1,0 +1,458 @@
+// Prisma schema for the LPG Emergency Priority Delivery System.
+// Mirrors docs/ARCHITECTURE.md §3/§4 (v2, post architecture-review).
+//
+// Every OPEN-BUSINESS-DECISION-xx referenced in a comment below means: this
+// field/table exists to hold a future answer, but no value here should be
+// read as the answer. Do not remove the nullability/genericness that keeps
+// these open.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// IdentityAccess module
+// ---------------------------------------------------------------------------
+
+model User {
+  id              String   @id @default(uuid())
+  fullName        String   @map("full_name")
+  phoneOrUsername String   @unique @map("phone_or_username")
+  passwordHash    String   @map("password_hash") // argon2id — users only, never OTP (ARCH-DECISION-10)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  roles             UserRole[]
+  agentProfile      AgentProfile?
+  districtAccess    UserDistrictAccess[]
+  verifications     Verification[]          @relation("VerifiedBy")
+  createdRequests   Request[]               @relation("CreatedBy")
+  priorityOverrides PriorityOverride[]
+  activatedPolicies PriorityPolicyVersion[]
+  auditLogs         AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  name        String  @unique // e.g. INTAKE_OPERATOR — see docs/ARCHITECTURE.md §7 for the proposed set
+  description String?
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  code        String  @unique // e.g. 'request:create'
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// ARCH-DECISION-23: scaffolded now, unused until OPEN-BUSINESS-DECISION-04
+/// (official access tiers — national vs. district) is ratified.
+model UserDistrictAccess {
+  userId       String @map("user_id")
+  districtCode String @map("district_code")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, districtCode])
+  @@map("user_district_access")
+}
+
+/// ARCH-DECISION-07: separates identity (User) from fleet-operational profile.
+model AgentProfile {
+  id         String  @id @default(uuid())
+  userId     String  @unique @map("user_id")
+  licenseRef String? @map("license_ref")
+  status     String  @default("ACTIVE")
+
+  user               User                  @relation(fields: [userId], references: [id])
+  vehicleAssignments DeliveryPlanVehicle[]
+
+  @@map("agent_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// RequestIntake module
+// ---------------------------------------------------------------------------
+
+model Beneficiary {
+  id           String   @id @default(uuid())
+  name         String?
+  mobileNumber String?  @map("mobile_number")
+  addressText  String?  @map("address_text")
+  location     Json? // {district, municipality, ward, lat, lng} — taxonomy OPEN-BUSINESS-DECISION-01
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  requests Request[]
+
+  @@index([mobileNumber])
+  @@map("beneficiaries")
+}
+
+/// requests.status is written ONLY by RequestIntake's RequestStateMachine
+/// service (ARCH-DECISION-18). Other modules request a transition; they
+/// never set this field directly via Prisma.
+model Request {
+  id                 String    @id @default(uuid())
+  beneficiaryId      String?   @map("beneficiary_id")
+  lpgNeedDescription String?   @map("lpg_need_description")
+  familyGroupStatus  String?   @map("family_group_status")
+  sourceChannel      String    @map("source_channel") // HELLO_SARKAR | SOCIAL_MEDIA | NEWS_MEDIA | CALL_CENTRE | LOCAL_GOV | COMMUNITY_REP | OTHER
+  status             String    @default("RECORDED")
+  // RECORDED | VERIFIED | SHORTLISTED | DELIVERY_QUEUE | DELIVERY_PLANNED
+  // | DELIVERY_IN_PROGRESS | DELIVERED | PENDING | REJECTED
+  // (PENDING/REJECTED trigger criteria: OPEN-BUSINESS-DECISION-07/12)
+  version            Int       @default(0) // optimistic concurrency, ARCH-DECISION-14
+  requestedAt        DateTime? @map("requested_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  createdById        String?   @map("created_by")
+
+  beneficiary       Beneficiary?           @relation(fields: [beneficiaryId], references: [id])
+  createdBy         User?                  @relation("CreatedBy", fields: [createdById], references: [id])
+  verifications     Verification[]
+  priorityGroups    RequestPriorityGroup[]
+  priorityOverrides PriorityOverride[]
+  delivery          Delivery?
+  // Audit trail for this request is queried via AuditLog.entityType='Request'
+  // AND AuditLog.entityId=this.id — not a typed relation (see AuditLog model).
+
+  @@index([status])
+  @@index([sourceChannel])
+  @@map("requests")
+}
+
+// ---------------------------------------------------------------------------
+// Verification module
+// ---------------------------------------------------------------------------
+
+/// B-3 (review): a lookup table, not a CHECK-constrained enum — the real
+/// outcome policy (OPEN-BUSINESS-DECISION-07) may need a third value (e.g.
+/// "unreachable, retry"); adding one must be a data change, not a migration.
+model VerificationOutcome {
+  id   String @id @default(uuid())
+  code String @unique // seeded: CONFIRMED, FAILED
+
+  verifications Verification[]
+
+  @@map("verification_outcomes")
+}
+
+model Verification {
+  id           String   @id @default(uuid())
+  requestId    String   @map("request_id")
+  verifiedById String?  @map("verified_by")
+  method       String // PHONE | OTHER
+  outcomeId    String   @map("outcome_id")
+  notes        String?
+  verifiedAt   DateTime @default(now()) @map("verified_at")
+
+  request    Request             @relation(fields: [requestId], references: [id])
+  verifiedBy User?               @relation("VerifiedBy", fields: [verifiedById], references: [id])
+  outcome    VerificationOutcome @relation(fields: [outcomeId], references: [id])
+
+  @@map("verifications")
+}
+
+// ---------------------------------------------------------------------------
+// PriorityClassification module
+// ---------------------------------------------------------------------------
+
+model PriorityGroup {
+  id      String  @id @default(uuid())
+  code    String  @unique // e.g. EXTREME_POVERTY, STUDENT, SENIOR_CITIZEN — the 8 REQ-023 groups
+  labelEn String  @map("label_en")
+  labelNe String? @map("label_ne")
+
+  requests RequestPriorityGroup[]
+  rules    PriorityRule[]
+
+  @@map("priority_groups")
+}
+
+/// scoringFormula stays NULL until OPEN-BUSINESS-DECISION-08 is ratified.
+/// Application code must never fall back to an invented formula when this
+/// is null — absence of a formula means classification output is an
+/// unordered set of groups, not a numeric rank (closes review CRIT-2).
+model PriorityPolicyVersion {
+  id             String    @id @default(uuid())
+  versionLabel   String    @map("version_label")
+  scoringFormula Json?     @map("scoring_formula")
+  activatedAt    DateTime? @map("activated_at")
+  activatedById  String?   @map("activated_by")
+
+  activatedBy User?                  @relation(fields: [activatedById], references: [id])
+  rules       PriorityRule[]
+  assessments RequestPriorityGroup[]
+
+  @@map("priority_policy_versions")
+}
+
+model PriorityRule {
+  id              String @id @default(uuid())
+  policyVersionId String @map("policy_version_id")
+  predicate       Json
+  targetGroupId   String @map("target_group_id")
+
+  policyVersion PriorityPolicyVersion @relation(fields: [policyVersionId], references: [id])
+  targetGroup   PriorityGroup         @relation(fields: [targetGroupId], references: [id])
+
+  @@map("priority_rules")
+}
+
+model RequestPriorityGroup {
+  requestId                    String  @map("request_id")
+  priorityGroupId              String  @map("priority_group_id")
+  assessedUnderPolicyVersionId String? @map("assessed_under_policy_version_id")
+
+  request              Request                @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  priorityGroup        PriorityGroup          @relation(fields: [priorityGroupId], references: [id])
+  assessedUnderVersion PriorityPolicyVersion? @relation(fields: [assessedUnderPolicyVersionId], references: [id])
+
+  @@id([requestId, priorityGroupId])
+  @@map("request_priority_groups")
+}
+
+/// Closes review HIGH-8: human correction of an automated/prior
+/// classification is a first-class, always-reasoned, independently
+/// queryable event — not just a generic audit-log row.
+/// Who may call this is OPEN-BUSINESS-DECISION-39.
+model PriorityOverride {
+  id             String   @id @default(uuid())
+  requestId      String   @map("request_id")
+  previousGroups Json     @map("previous_groups")
+  newGroups      Json     @map("new_groups")
+  actorId        String   @map("actor_id")
+  reason         String // NOT NULL — mandatory
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  request Request @relation(fields: [requestId], references: [id])
+  actor   User    @relation(fields: [actorId], references: [id])
+
+  @@map("priority_overrides")
+}
+
+// ---------------------------------------------------------------------------
+// DeliveryPlanning module
+// ---------------------------------------------------------------------------
+
+/// ARCH-DECISION-08: fleet + LPG allocation, absent from the pre-review design.
+model Vehicle {
+  id                String @id @default(uuid())
+  identifier        String
+  capacityCylinders Int?   @map("capacity_cylinders") // capacity value: OPEN-BUSINESS-DECISION-10
+  status            String @default("ACTIVE")
+
+  planAssignments DeliveryPlanVehicle[]
+
+  @@map("vehicles")
+}
+
+model DeliveryPlan {
+  id        String   @id @default(uuid())
+  planDate  DateTime @unique @map("plan_date") @db.Date // unique supports idempotent re-run, ARCH-DECISION-15
+  status    String   @default("DRAFT")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  vehicleAssignments DeliveryPlanVehicle[]
+
+  @@map("delivery_plans")
+}
+
+model DeliveryPlanVehicle {
+  id                 String  @id @default(uuid())
+  deliveryPlanId     String  @map("delivery_plan_id")
+  vehicleId          String  @map("vehicle_id")
+  agentProfileId     String? @map("agent_profile_id")
+  cylindersLoaded    Int     @default(0) @map("cylinders_loaded") // quantity policy: OPEN-BUSINESS-DECISION-20/43
+  cylindersRemaining Int     @default(0) @map("cylinders_remaining")
+
+  deliveryPlan DeliveryPlan   @relation(fields: [deliveryPlanId], references: [id])
+  vehicle      Vehicle        @relation(fields: [vehicleId], references: [id])
+  agentProfile AgentProfile?  @relation(fields: [agentProfileId], references: [id])
+  stops        DeliveryStop[]
+
+  @@map("delivery_plan_vehicles")
+}
+
+/// ARCH-DECISION-07: business-level fulfillment record, 1:1 with Request.
+/// Retries no longer need a second row here — see DeliveryStop.
+model Delivery {
+  id          String    @id @default(uuid())
+  requestId   String    @unique @map("request_id")
+  status      String    @default("PENDING") // PENDING | DELIVERED | CANCELLED
+  confirmedAt DateTime? @map("confirmed_at")
+
+  request Request        @relation(fields: [requestId], references: [id])
+  stops   DeliveryStop[]
+
+  @@map("deliveries")
+}
+
+/// ARCH-DECISION-07: one row per delivery ATTEMPT. Closes review CRIT-1 —
+/// the pre-review design's deliveries.request_id UNIQUE made a second
+/// attempt for a failed/missed delivery structurally impossible.
+model DeliveryStop {
+  id                    String    @id @default(uuid())
+  deliveryId            String    @map("delivery_id")
+  deliveryPlanVehicleId String?   @map("delivery_plan_vehicle_id")
+  sequenceNumber        Int?      @map("sequence_number") // route order — kept distinct from priority, see review B-2
+  attemptNumber         Int       @default(1) @map("attempt_number")
+  status                String    @default("SCHEDULED")
+  // SCHEDULED | IN_PROGRESS | OTP_SENT | OTP_SEND_FAILED | OTP_VERIFY_FAILED | CONFIRMED | FAILED | CANCELLED
+  // ARCH-DECISION-19: only Otp module's success path (via DeliveryPlanning.recordOtpOutcome()) may set CONFIRMED.
+  version               Int       @default(0) // optimistic concurrency, ARCH-DECISION-14
+  plannedAt             DateTime? @map("planned_at")
+  completedAt           DateTime? @map("completed_at")
+
+  delivery            Delivery             @relation(fields: [deliveryId], references: [id])
+  deliveryPlanVehicle DeliveryPlanVehicle? @relation(fields: [deliveryPlanVehicleId], references: [id])
+  otpCodes            OtpCode[]
+  notifications       Notification[]
+  // Audit trail for this stop is queried via AuditLog.entityType='DeliveryStop'
+  // AND AuditLog.entityId=this.id — not a typed relation (see AuditLog model).
+
+  @@unique([deliveryId, attemptNumber])
+  @@index([status])
+  @@map("delivery_stops")
+}
+
+// ---------------------------------------------------------------------------
+// Otp module
+// ---------------------------------------------------------------------------
+
+model OtpCode {
+  id             String   @id @default(uuid())
+  deliveryStopId String   @map("delivery_stop_id")
+  codeHash       String   @map("code_hash") // ARCH-DECISION-10: HMAC-SHA256 keyed, never plaintext, never argon2
+  attemptCount   Int      @default(0) @map("attempt_count") // ARCH-DECISION-11: atomic increment only, never read-then-write
+  maxAttempts    Int      @default(3) @map("max_attempts") // default pending OPEN-BUSINESS-DECISION-11
+  expiresAt      DateTime @map("expires_at")
+  status         String   @default("ACTIVE") // ACTIVE | VERIFIED | EXPIRED | EXHAUSTED
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  deliveryStop DeliveryStop @relation(fields: [deliveryStopId], references: [id])
+
+  // ARCH-DECISION-12: at most one ACTIVE row per delivery_stop_id — enforced
+  // by a partial unique index added in a raw-SQL migration (Prisma cannot
+  // express a partial unique index in the schema DSL directly):
+  //   CREATE UNIQUE INDEX idx_otp_one_active_per_stop ON otp_codes(delivery_stop_id) WHERE status = 'ACTIVE';
+  @@map("otp_codes")
+}
+
+// ---------------------------------------------------------------------------
+// Notification module
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id             String    @id @default(uuid())
+  deliveryStopId String?   @map("delivery_stop_id")
+  channel        String    @default("SMS")
+  recipient      String
+  purpose        String // OTP | STATUS_UPDATE
+  status         String    @default("QUEUED") // QUEUED | SENT | FAILED
+  sentAt         DateTime? @map("sent_at")
+
+  deliveryStop DeliveryStop? @relation(fields: [deliveryStopId], references: [id])
+
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// ExternalIntegration module
+// ---------------------------------------------------------------------------
+
+/// ARCH-DECISION-13: idempotent inbound staging, closes review CRIT-5.
+model IntegrationInboxEntry {
+  id                  String    @id @default(uuid())
+  sourceChannel       String    @map("source_channel")
+  externalReferenceId String    @map("external_reference_id")
+  rawPayload          Json      @map("raw_payload")
+  status              String    @default("RECEIVED") // RECEIVED | PROCESSED | FAILED | DUPLICATE
+  receivedAt          DateTime  @default(now()) @map("received_at")
+  processedAt         DateTime? @map("processed_at")
+
+  @@unique([sourceChannel, externalReferenceId])
+  @@map("integration_inbox")
+}
+
+// ---------------------------------------------------------------------------
+// Core — generic config store
+// ---------------------------------------------------------------------------
+
+/// Generic key/value config. First tenant: OTP policy defaults (closes
+/// review B-4 — no config entity existed for these values pre-review).
+model PolicySetting {
+  key         String   @id
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("policy_settings")
+}
+
+// ---------------------------------------------------------------------------
+// AuditLog module
+// ---------------------------------------------------------------------------
+
+/// Append-only. UPDATE/DELETE revoked at the DB grant level for the
+/// application role (see a follow-up raw-SQL migration). INSERT is
+/// restricted to the AuditLog module by a CI import-boundary lint rule,
+/// not a DB grant — see docs/ARCHITECTURE_REVIEW.md H-1 / ARCH-DECISION-17.
+model AuditLog {
+  id            String   @id @default(uuid())
+  actorId       String?  @map("actor_id")
+  action        String // e.g. 'REQUEST_VERIFIED', 'OTP_VERIFICATION_FAILED', 'AUDIT_LOG_QUERIED'
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id")
+  beforeState   Json?    @map("before_state")
+  afterState    Json?    @map("after_state")
+  correlationId String?  @map("correlation_id")
+  ipAddress     String?  @map("ip_address")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  // entityId/entityType are a deliberately polymorphic pair (an audit log
+  // covers Request, DeliveryStop, User, OtpCode, etc.) — Prisma cannot
+  // express a polymorphic foreign key, so there is intentionally no typed
+  // relation here. Query by (entityType, entityId) instead of a join.
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
