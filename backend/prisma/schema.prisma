@@ -7,7 +7,13 @@
 // these open.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Explicit musl+OpenSSL-3.0 target: node:20-alpine ships OpenSSL 3.x, not
+  // the 1.1.x Prisma's own "native" auto-detection falls back to on Alpine,
+  // which produced a query-engine binary that fails to load at runtime
+  // ("Error loading shared library libssl.so.1.1: No such file or
+  // directory") inside the Docker backend/frontend containers.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
