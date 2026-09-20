@@ -129,7 +129,10 @@ export class DeliveryPlanningService {
           include: {
             vehicle: true,
             agentProfile: { include: { user: { select: { id: true, fullName: true } } } },
-            stops: { orderBy: { sequenceNumber: 'asc' } },
+            stops: {
+              orderBy: { sequenceNumber: 'asc' },
+              include: { delivery: { include: { request: { include: { beneficiary: true } } } } },
+            },
           },
         },
       },

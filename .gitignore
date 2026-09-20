@@ -39,3 +39,4 @@ coverage/
 # Docker volumes (local dev bind mounts, if any)
 postgres-data/
 redis-data/
+*.rdb
