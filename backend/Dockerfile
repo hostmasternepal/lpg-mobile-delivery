@@ -3,6 +3,14 @@
 # npm workspaces resolve correctly.
 
 FROM node:20-alpine AS build
+# Prisma's engine-selection at both generate-time and runtime shells out to
+# `openssl version` to pick the right musl+OpenSSL query-engine binary; a
+# bare node:20-alpine has no openssl binary at all, so that detection
+# silently fails and Prisma falls back to guessing (observed: "Defaulting
+# to openssl-1.1.x", then trying to load a bare `linux-musl` engine that
+# was never even bundled, since this schema's binaryTargets specify
+# linux-musl-openssl-3.0.x, not the OpenSSL-less legacy name).
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY backend/package.json backend/package.json
@@ -13,6 +21,7 @@ RUN npm run prisma:generate --workspace backend
 RUN npm run build --workspace backend
 
 FROM node:20-alpine AS runtime
+RUN apk add --no-cache openssl
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json* ./
