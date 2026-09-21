@@ -63,6 +63,15 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        # NEXT_PUBLIC_* vars are inlined into the browser bundle at `next
+        # build` time — setting one only under `environment:` below has no
+        # effect on already-built client JS, since that's a container
+        # runtime var, not a build-time one. Without this, the frontend
+        # image always falls back to the Dockerfile ARG default
+        # (http://localhost:3001/api/v1), which is wrong for anyone
+        # opening the app from a machine other than the Docker host.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001/api/v1}
     restart: unless-stopped
     env_file:
       - .env
