@@ -37,6 +37,15 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-lpg_app}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-lpg_delivery}?schema=public
       REDIS_URL: redis://redis:6379
+      # Pin the in-container listen port to match the hardcoded container
+      # side of the ports mapping and the healthcheck below. BACKEND_PORT
+      # in .env is also read directly by `main.ts` for non-Docker local dev
+      # (`npm run start:dev`) and doubles as the HOST port here — without
+      # this override, remapping it (e.g. to dodge a host port conflict)
+      # leaks into the container via env_file and makes the app bind to
+      # the host port instead of 3001, breaking the healthcheck and the
+      # Docker port forward silently.
+      BACKEND_PORT: 3001
     ports:
       - "${BACKEND_PORT:-3001}:3001"
     depends_on:
