@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lpg_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-lpg_delivery}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lpg_app} -d ${POSTGRES_DB:-lpg_delivery}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lpg_app}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-lpg_delivery}?schema=public
+      REDIS_URL: redis://redis:6379
+      # Pin the in-container listen port to match the hardcoded container
+      # side of the ports mapping and the healthcheck below. BACKEND_PORT
+      # in .env is also read directly by `main.ts` for non-Docker local dev
+      # (`npm run start:dev`) and doubles as the HOST port here — without
+      # this override, remapping it (e.g. to dodge a host port conflict)
+      # leaks into the container via env_file and makes the app bind to
+      # the host port instead of 3001, breaking the healthcheck and the
+      # Docker port forward silently.
+      BACKEND_PORT: 3001
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # NEXT_PUBLIC_* vars are inlined into the browser bundle at `next
+        # build` time — setting one only under `environment:` below has no
+        # effect on already-built client JS, since that's a container
+        # runtime var, not a build-time one. Without this, the frontend
+        # image always falls back to the Dockerfile ARG default
+        # (http://localhost:3001/api/v1), which is wrong for anyone
+        # opening the app from a machine other than the Docker host.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001/api/v1}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001/api/v1}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:

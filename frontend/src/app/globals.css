@@ -1,0 +1,285 @@
+:root {
+  color-scheme: light dark;
+  --border: #d8dce1;
+  --bg-muted: #f5f6f8;
+  --text-muted: #5b6270;
+  --brand: #0a5c36;
+  --danger: #b00020;
+  --warn: #8a5a00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --border: #3a3f47;
+    --bg-muted: #1c1f24;
+    --text-muted: #9aa1ac;
+    --brand: #4caf7d;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+main.narrow {
+  max-width: 640px;
+}
+
+h1 {
+  font-size: 1.4rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin-top: 2rem;
+}
+
+a {
+  color: var(--brand);
+}
+
+input,
+select,
+textarea,
+button {
+  font-size: 0.95rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: var(--brand);
+  color: white;
+  border: none;
+  padding: 0.5rem 0.9rem;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border);
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+button.small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.field label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* --- Nav shell --- */
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.app-nav .brand {
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.app-nav a {
+  text-decoration: none;
+  font-size: 0.9rem;
+  color: inherit;
+}
+
+.app-nav a:hover {
+  text-decoration: underline;
+}
+
+.app-nav .spacer {
+  flex: 1;
+}
+
+.app-nav .who {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* --- Cards / tables --- */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.card h3 {
+  margin-top: 0;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-tile {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.stat-tile .value {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.stat-tile .label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover {
+  background: var(--bg-muted);
+}
+
+/* --- Status badges --- */
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.badge-neutral {
+  background: var(--bg-muted);
+}
+
+.badge-good {
+  background: #e3f5ea;
+  color: #0a5c36;
+  border-color: #b7e3c9;
+}
+
+.badge-warn {
+  background: #fdf1da;
+  color: var(--warn);
+  border-color: #f2d69b;
+}
+
+.badge-bad {
+  background: #fbe3e6;
+  color: var(--danger);
+  border-color: #f3b8c0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .badge-good {
+    background: #113322;
+    color: #7fd6a4;
+    border-color: #1d5238;
+  }
+  .badge-warn {
+    background: #3a2c0d;
+    color: #e3b558;
+    border-color: #5c451a;
+  }
+  .badge-bad {
+    background: #3a1216;
+    color: #f29aa4;
+    border-color: #5c1f27;
+  }
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.form-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.form-row .field {
+  flex: 1;
+  min-width: 160px;
+}
