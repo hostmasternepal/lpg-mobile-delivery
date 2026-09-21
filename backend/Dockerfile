@@ -28,6 +28,13 @@ COPY package.json package-lock.json* ./
 COPY backend/package.json backend/package.json
 RUN npm ci --workspace backend --omit=dev --include-workspace-root
 COPY --from=build /app/backend/dist ./backend/dist
+# dist-scripts holds the compiled prisma/seed.ts and scripts/*.ts — run as
+# plain `node`, never `ts-node`, in this image: ts-node's require.extensions
+# hook for .ts fights Node's own ESM-vs-CJS module-type auto-detection on
+# ambiguous (no "type" field) package.json in Alpine's Node build, which
+# throws (observed: "Unknown file extension \".ts\"") or silently no-ops
+# depending on the exact Node patch version.
+COPY --from=build /app/backend/dist-scripts ./backend/dist-scripts
 COPY --from=build /app/backend/prisma ./backend/prisma
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 
